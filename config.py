@@ -9,38 +9,37 @@ TELEGRAM_CHAT_ID   = "8645569215"
 # ------- Scan Interval ------------------------------------
 SCAN_INTERVAL_SECONDS = 300   # 5 minutes between full scans
 
-# ------- Cheap Revolut UK Coins to Monitor (Batch 2) ------
-# No overlap with Bot 1
+# ------- Coins to Monitor (Binance symbols) ---------------
 COINS = {
-    "zrx":                        "ZRX",
-    "1inch":                      "1INCH",
-    "axie-infinity":              "AXS",
-    "balancer":                   "BAL",
-    "band-protocol":              "BAND",
-    "biconomy":                   "BICO",
-    "compound-governance-token":  "COMP",
-    "cosmos":                     "ATOM",
-    "curve-dao-token":            "CRV",
-    "ethereum-classic":           "ETC",
-    "fetch-ai":                   "FET",
-    "filecoin":                   "FIL",
-    "immutable-x":                "IMX",
-    "kyber-network-crystal":      "KNC",
-    "livepeer":                   "LPT",
-    "mask-network":               "MASK",
-    "matic-network":              "MATIC",
-    "origin-protocol":            "OGN",
-    "perpetual-protocol":         "PERP",
-    "polkadot":                   "DOT",
-    "radicle":                    "RAD",
-    "republic-protocol":          "REN",
-    "spell-token":                "SPELL",
-    "stepn":                      "GMT",
-    "sushi":                      "SUSHI",
-    "havven":                     "SNX",
-    "uniswap":                    "UNI",
-    "apecoin":                    "APE",
-    "uma":                        "UMA",
+    "ZRXUSDT":   "ZRX",
+    "1INCHUSDT": "1INCH",
+    "AXSUSDT":   "AXS",
+    "BALUSDT":   "BAL",
+    "BANDUSDT":  "BAND",
+    "BICOUSDT":  "BICO",
+    "COMPUSDT":  "COMP",
+    "ATOMUSDT":  "ATOM",
+    "CRVUSDT":   "CRV",
+    "ETCUSDT":   "ETC",
+    "FETUSDT":   "FET",
+    "FILUSDT":   "FIL",
+    "IMXUSDT":   "IMX",
+    "KNCUSDT":   "KNC",
+    "LPTUSDT":   "LPT",
+    "MASKUSDT":  "MASK",
+    "MATICUSDT": "MATIC",
+    "OGNUSDT":   "OGN",
+    "PERPUSDT":  "PERP",
+    "DOTUSDT":   "DOT",
+    "RADUSDT":   "RAD",
+    "RENUSDT":   "REN",
+    "SPELLUSDT": "SPELL",
+    "GMTUSDT":   "GMT",
+    "SUSHIUSDT": "SUSHI",
+    "SNXUSDT":   "SNX",
+    "UNIUSDT":   "UNI",
+    "APEUSDT":   "APE",
+    "UMAUSDT":   "UMA",
 }
 
 # ------- Signal Thresholds --------------------------------
@@ -48,10 +47,6 @@ RSI_OVERSOLD    = 30
 RSI_OVERBOUGHT  = 70
 
 ALERT_COOLDOWN_SECONDS = 3600   # 1 hour
-
-# ------- CoinGecko API ------------------------------------
-COINGECKO_API_KEY     = "CG-srBknQUrDV3RQ5WrNgEQ1d82"
-COINGECKO_VS_CURRENCY = "gbp"
 
 # ------- Risk Disclaimer ----------------------------------
 SHOW_DISCLAIMER = True

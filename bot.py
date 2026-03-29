@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Revolut UK Crypto Signal Bot
-Monitors cheap cryptos on CoinGecko and sends Telegram alerts
+Monitors cryptos via Binance API and sends Telegram alerts
 when technical indicators suggest buy or sell opportunities.
 """
 
+import json
 import time
 import logging
 import requests
@@ -15,11 +16,10 @@ from config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     SCAN_INTERVAL_SECONDS, COINS,
     RSI_OVERSOLD, RSI_OVERBOUGHT,
-    ALERT_COOLDOWN_SECONDS, COINGECKO_VS_CURRENCY,
-    COINGECKO_API_KEY, SHOW_DISCLAIMER,
+    ALERT_COOLDOWN_SECONDS, SHOW_DISCLAIMER,
 )
 
-CG_HEADERS = {"x-cg-demo-api-key": COINGECKO_API_KEY}
+BINANCE_BASE = "https://api.binance.com/api/v3"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,14 +28,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Tracks last alert time per (coin_id, direction)
 alert_history: dict[tuple, float] = {}
 
 
 # ── Telegram ──────────────────────────────────────────────
 
 def send_telegram(message: str) -> None:
-    """Send a message to the configured Telegram chat."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -50,52 +48,39 @@ def send_telegram(message: str) -> None:
         log.error("Telegram send failed: %s", e)
 
 
-# ── CoinGecko data ────────────────────────────────────────
+# ── Binance data ──────────────────────────────────────────
 
-def fetch_ohlc(coin_id: str, days: int = 7) -> pd.DataFrame | None:
-    """
-    Fetch OHLC candle data from CoinGecko free API.
-    Retries up to 3 times on rate-limit (429) with increasing backoff.
-    """
-    url = (
-        f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
-        f"?vs_currency={COINGECKO_VS_CURRENCY}&days={days}"
-    )
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=CG_HEADERS, timeout=15)
-            if resp.status_code == 429:
-                wait = 60 * (attempt + 1)
-                log.warning("Rate limited on %s — waiting %ds before retry…", coin_id, wait)
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            if not data:
-                return None
-            df = pd.DataFrame(data, columns=["time", "open", "high", "low", "close"])
-            df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
-            df = df.sort_values("time").reset_index(drop=True)
-            return df
-        except Exception as e:
-            log.warning("OHLC fetch failed for %s: %s", coin_id, e)
-            return None
-    log.warning("Giving up on %s after 3 rate-limit retries", coin_id)
-    return None
-
-
-def fetch_current_price(coin_ids: list[str]) -> dict[str, float]:
-    """Fetch current prices for a batch of coins in one API call."""
-    ids_param = ",".join(coin_ids)
-    url = (
-        f"https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={ids_param}&vs_currencies={COINGECKO_VS_CURRENCY}"
-        f"&include_24hr_change=true&include_24hr_vol=true"
-    )
+def fetch_ohlc(symbol: str, interval: str = "1h", limit: int = 168) -> pd.DataFrame | None:
+    """Fetch kline (OHLC) data from Binance. 168 x 1h = 7 days."""
+    url = f"{BINANCE_BASE}/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
-        resp = requests.get(url, headers=CG_HEADERS, timeout=15)
+        resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not data:
+            return None
+        df = pd.DataFrame(data, columns=[
+            "time", "open", "high", "low", "close", "volume",
+            "close_time", "quote_vol", "trades", "taker_base", "taker_quote", "ignore"
+        ])
+        df = df[["time", "open", "high", "low", "close"]].copy()
+        df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+        return df
+    except Exception as e:
+        log.warning("OHLC fetch failed for %s: %s", symbol, e)
+        return None
+
+
+def fetch_current_prices(symbols: list[str]) -> dict[str, dict]:
+    """Batch-fetch 24hr ticker data from Binance."""
+    url = f"{BINANCE_BASE}/ticker/24hr"
+    params = {"symbols": json.dumps(symbols)}
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return {item["symbol"]: item for item in resp.json()}
     except Exception as e:
         log.warning("Price fetch failed: %s", e)
         return {}
@@ -131,10 +116,6 @@ def calc_bollinger(series: pd.Series, period=20, std_dev=2):
 
 
 def analyse(df: pd.DataFrame) -> dict:
-    """
-    Run all indicators on OHLC data.
-    Returns a dict with indicator values and signal scores.
-    """
     close = df["close"]
 
     rsi = calc_rsi(close)
@@ -143,19 +124,15 @@ def analyse(df: pd.DataFrame) -> dict:
 
     last_rsi   = rsi.iloc[-1]
     last_macd  = macd_line.iloc[-1]
-    last_sig   = signal_line.iloc[-1]
     last_hist  = histogram.iloc[-1]
     prev_hist  = histogram.iloc[-2] if len(histogram) > 1 else 0
     last_close = close.iloc[-1]
     last_upper = bb_upper.iloc[-1]
     last_lower = bb_lower.iloc[-1]
-    last_mid   = bb_mid.iloc[-1]
 
-    # Score: positive = bullish, negative = bearish
     score = 0
     reasons = []
 
-    # RSI
     if last_rsi < RSI_OVERSOLD:
         score += 2
         reasons.append(f"RSI oversold ({last_rsi:.1f})")
@@ -163,7 +140,6 @@ def analyse(df: pd.DataFrame) -> dict:
         score -= 2
         reasons.append(f"RSI overbought ({last_rsi:.1f})")
 
-    # MACD crossover
     if last_hist > 0 and prev_hist <= 0:
         score += 2
         reasons.append("MACD bullish crossover")
@@ -177,7 +153,6 @@ def analyse(df: pd.DataFrame) -> dict:
         score -= 1
         reasons.append(f"MACD negative ({last_hist:.6f})")
 
-    # Bollinger Band squeeze / breakout
     if not np.isnan(last_lower) and last_close < last_lower:
         score += 1
         reasons.append("Price below lower Bollinger Band")
@@ -198,23 +173,17 @@ def analyse(df: pd.DataFrame) -> dict:
 
 # ── Alert logic ───────────────────────────────────────────
 
-def should_alert(coin_id: str, direction: str) -> bool:
-    key = (coin_id, direction)
+def should_alert(symbol: str, direction: str) -> bool:
+    key = (symbol, direction)
     last = alert_history.get(key, 0)
     return (time.time() - last) > ALERT_COOLDOWN_SECONDS
 
 
-def record_alert(coin_id: str, direction: str) -> None:
-    alert_history[(coin_id, direction)] = time.time()
+def record_alert(symbol: str, direction: str) -> None:
+    alert_history[(symbol, direction)] = time.time()
 
 
-def build_message(
-    ticker: str,
-    direction: str,
-    price: float,
-    change_24h: float,
-    analysis: dict,
-) -> str:
+def build_message(ticker, direction, price, change_24h, analysis) -> str:
     emoji = "🟢" if direction == "BUY" else "🔴"
     action = "BUY opportunity" if direction == "BUY" else "SELL / take profit"
     reasons_text = "\n  • ".join(analysis["reasons"]) if analysis["reasons"] else "—"
@@ -222,7 +191,7 @@ def build_message(
     msg = (
         f"{emoji} <b>{ticker} — {action}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"💰 Price: <b>£{price:.6g}</b>  ({change_24h:+.2f}% 24h)\n"
+        f"💰 Price: <b>${price:.6g}</b>  ({change_24h:+.2f}% 24h)\n"
         f"📊 RSI: {analysis['rsi']:.1f}  |  Score: {analysis['score']:+d}\n"
         f"📝 Signals:\n  • {reasons_text}\n"
         f"🕐 {datetime.now(timezone.utc).strftime('%H:%M UTC %d %b %Y')}\n"
@@ -237,49 +206,47 @@ def build_message(
 # ── Main scan loop ────────────────────────────────────────
 
 def scan_all() -> None:
-    coin_ids = list(COINS.keys())
-    log.info("Scanning %d coins…", len(coin_ids))
+    symbols = list(COINS.keys())
+    log.info("Scanning %d coins…", len(symbols))
 
-    # Batch-fetch current prices
-    prices = fetch_current_price(coin_ids)
+    prices = fetch_current_prices(symbols)
 
-    for coin_id, ticker in COINS.items():
+    for symbol, ticker in COINS.items():
         try:
-            price_data = prices.get(coin_id, {})
-            current_price = price_data.get(COINGECKO_VS_CURRENCY)
-            change_24h = price_data.get(f"{COINGECKO_VS_CURRENCY}_24h_change", 0.0) or 0.0
+            price_data = prices.get(symbol, {})
+            current_price = float(price_data["lastPrice"]) if price_data else None
+            change_24h = float(price_data.get("priceChangePercent", 0)) if price_data else 0.0
 
-            if current_price is None:
+            if not current_price:
                 log.warning("No price for %s, skipping", ticker)
                 continue
 
-            df = fetch_ohlc(coin_id, days=7)
+            df = fetch_ohlc(symbol)
             if df is None or len(df) < 30:
                 log.warning("Insufficient OHLC data for %s, skipping", ticker)
-                time.sleep(3.0)   # be gentle with free API
                 continue
 
             analysis = analyse(df)
             score = analysis["score"]
 
             log.info(
-                "%s: £%.6g | RSI %.1f | score %+d",
+                "%s: $%.6g | RSI %.1f | score %+d",
                 ticker, current_price, analysis["rsi"], score,
             )
 
-            if score >= 3 and should_alert(coin_id, "BUY"):
+            if score >= 3 and should_alert(symbol, "BUY"):
                 msg = build_message(ticker, "BUY", current_price, change_24h, analysis)
                 send_telegram(msg)
-                record_alert(coin_id, "BUY")
+                record_alert(symbol, "BUY")
                 log.info("BUY alert sent for %s", ticker)
 
-            elif score <= -3 and should_alert(coin_id, "SELL"):
+            elif score <= -3 and should_alert(symbol, "SELL"):
                 msg = build_message(ticker, "SELL", current_price, change_24h, analysis)
                 send_telegram(msg)
-                record_alert(coin_id, "SELL")
+                record_alert(symbol, "SELL")
                 log.info("SELL alert sent for %s", ticker)
 
-            time.sleep(6.0)   # stay within CoinGecko free-tier rate limit
+            time.sleep(0.5)
 
         except Exception as e:
             log.error("Error processing %s: %s", ticker, e)
