@@ -246,7 +246,6 @@ def scan_all() -> None:
                 record_alert(symbol, "SELL")
                 log.info("SELL alert sent for %s", ticker)
 
-            time.sleep(0.5)
 
         except Exception as e:
             log.error("Error processing %s: %s", ticker, e)

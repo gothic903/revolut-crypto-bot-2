@@ -7,7 +7,7 @@ TELEGRAM_BOT_TOKEN = "8617534944:AAGhDCGlndaH3qE7NHBJ2s1-6w5XOq_rcR4"
 TELEGRAM_CHAT_ID   = "8645569215"
 
 # ------- Scan Interval ------------------------------------
-SCAN_INTERVAL_SECONDS = 300   # 5 minutes between full scans
+SCAN_INTERVAL_SECONDS = 60    # 1 minute between full scans
 
 # ------- Coins to Monitor (Binance symbols) ---------------
 COINS = {
