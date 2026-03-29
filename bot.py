@@ -76,7 +76,7 @@ def fetch_ohlc(symbol: str, interval: str = "1h", limit: int = 168) -> pd.DataFr
 def fetch_current_prices(symbols: list[str]) -> dict[str, dict]:
     """Batch-fetch 24hr ticker data from Binance."""
     url = f"{BINANCE_BASE}/ticker/24hr"
-    params = {"symbols": json.dumps(symbols)}
+    params = {"symbols": json.dumps(symbols, separators=(',', ':'))}
     try:
         resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
