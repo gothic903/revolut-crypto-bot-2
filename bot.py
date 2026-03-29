@@ -16,8 +16,10 @@ from config import (
     SCAN_INTERVAL_SECONDS, COINS,
     RSI_OVERSOLD, RSI_OVERBOUGHT,
     ALERT_COOLDOWN_SECONDS, COINGECKO_VS_CURRENCY,
-    SHOW_DISCLAIMER,
+    COINGECKO_API_KEY, SHOW_DISCLAIMER,
 )
+
+CG_HEADERS = {"x-cg-demo-api-key": COINGECKO_API_KEY}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,7 +63,7 @@ def fetch_ohlc(coin_id: str, days: int = 7) -> pd.DataFrame | None:
     )
     for attempt in range(3):
         try:
-            resp = requests.get(url, timeout=15)
+            resp = requests.get(url, headers=CG_HEADERS, timeout=15)
             if resp.status_code == 429:
                 wait = 60 * (attempt + 1)
                 log.warning("Rate limited on %s — waiting %ds before retry…", coin_id, wait)
@@ -91,7 +93,7 @@ def fetch_current_price(coin_ids: list[str]) -> dict[str, float]:
         f"&include_24hr_change=true&include_24hr_vol=true"
     )
     try:
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(url, headers=CG_HEADERS, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:

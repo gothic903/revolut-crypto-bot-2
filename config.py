@@ -50,6 +50,7 @@ RSI_OVERBOUGHT  = 70
 ALERT_COOLDOWN_SECONDS = 3600   # 1 hour
 
 # ------- CoinGecko API ------------------------------------
+COINGECKO_API_KEY     = "CG-srBknQUrDV3RQ5WrNgEQ1d82"
 COINGECKO_VS_CURRENCY = "gbp"
 
 # ------- Risk Disclaimer ----------------------------------
